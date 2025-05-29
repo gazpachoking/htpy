@@ -460,11 +460,21 @@ def main() -> None:
         default=sys.stdin,
         help="input HTML from file or stdin",
     )
+    parser.add_argument(
+        "--output",
+        type=argparse.FileType("a"),
+        nargs="?",
+        default=sys.stdout,
+        help="output HTPY to file or stdout",
+    )
+    parser.add_argument(
+        "--location", type=int, nargs=4, help="Only parse and replace a subsection of the file."
+    )
 
     args = parser.parse_args()
 
     try:
-        input = args.input.read()
+        input_contents = args.input.read()
     except KeyboardInterrupt:
         _printerr(
             "\nInterrupted",
@@ -476,8 +486,42 @@ def main() -> None:
 
     formatter = _get_formatter(args.format)
 
-    print(html2htpy(input, shorthand, imports, formatter))
+    if args.location:
+        start_row, start_col, end_row, end_col = args.location
+        selected_lines = input_contents.splitlines()[start_row - 1 : end_row]
+        selected_lines[0] = selected_lines[0][start_col - 1 :]
+        selected_lines[-1] = selected_lines[-1][:end_col]
+        input = "\n".join(selected_lines)
+    else:
+        input = input_contents
+
+    # If replacing html inside quotes, remove the quotes
+    input = input.strip().strip("'\"")
+
+    result = html2htpy(input, shorthand, imports, formatter)
+    if args.location:
+        result_lines = result.splitlines()
+        output_lines = []
+        if imports != "no":
+            output_lines.append(result_lines.pop(0))
+            result_lines.pop(0)
+        input_lines = input_contents.splitlines()
+        output_lines.extend(input_lines[: start_row - 1])
+        output_line = input_lines[start_row - 1][: start_col - 1] + "\n".join(result_lines)
+        output_line += input_lines[end_row][end_col:]
+        output_lines.append(output_line)
+        output_lines.extend(input_lines[end_row:])
+        output = "\n".join(output_lines)
+        args.output.seek(0)
+        args.output.truncate()
+    else:
+        output = result
+    args.output.write(output)
 
 
 def _printerr(value: str) -> None:
     print(value, file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
